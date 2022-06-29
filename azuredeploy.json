@@ -1,0 +1,420 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "EngineerAlias": {
+      "type": "string",
+      "defaultValue": "MSAlias",
+      "metadata": {
+        "description": "Engineer MS Alias - 17 characters only!"
+      }
+    },
+    "clientIpAddress": {
+      "type": "string",
+      "defaultValue": "0.0.0.0/32",
+      "metadata": {
+        "description": "The public IP address of your client computer you are working on obtained from www.whatismyip.com"
+      }
+    },
+    "adminUsername": {
+      "type": "string",
+      "defaultValue": "L300admin",
+      "metadata": {
+        "description": "Specifies a username for the Virtual Machine."
+      }
+    },
+    "adminPassword": {
+      "type": "string",
+      "defaultValue": "L300password",
+      "metadata": {
+        "description": "Specifies the SSH password for the Virtual Machine."
+      }
+    }
+  },
+  "variables": {
+    "networkInterfaceName": "[concat('NIC-N2-', parameters('EngineerAlias'))]",
+    "networkSecurityGroupName": "[concat('NSG-N2-', parameters('EngineerAlias'))]",
+
+    "vNetName": "[concat('Vnet-N2-', parameters('EngineerAlias'))]",
+    "vNetAddressPrefixes": "10.0.0.0/16",
+    "vmSubnetName": "default",
+    "vmSubnetAddressPrefix": "10.0.0.0/24",
+    "AppSubnetName": "app",
+    "AppSubnetPrefix": "10.0.1.0/24",
+
+    "privateEndpointConnName": "[concat('PE-N2-', parameters('EngineerAlias'))]",
+    "privateZoneName": "privatelink.blob.core.windows.net",
+
+    "storageAccountName": "[concat('storen2', toLower(parameters('EngineerAlias')))]",
+    "storageAccountId": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
+
+    "AppName": "[concat('APP-N2-', parameters('EngineerAlias'))]",
+    "AppServicePlanName": "[concat('Asp-N2-', parameters('EngineerAlias'))]",
+
+    "publicIPAddressName": "[concat('IP-N2-', parameters('EngineerAlias'))]",
+    "vmName": "[concat('VM-N2-', parameters('EngineerAlias'))]",
+    "vmSize": "Standard_B2ms"
+  },
+  "resources": [
+    //Network Security Group ----------------------------------------------------------------------------------------
+    {
+      "name": "[variables('networkSecurityGroupName')]",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2020-05-01",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "ssh_rule",
+            "properties": {
+              "description": "Locks inbound down to ssh default port 22.",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "22",
+              "sourceAddressPrefix": "[parameters('clientIpAddress')]",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 123,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "http_rule",
+            "properties": {
+              "description": "Allow HTTP",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "80",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 200,
+              "direction": "Inbound"
+            }
+          }
+        ]
+      }
+    },
+    // Vnet -----------------------------------------------------------------------------------------------------------
+    {
+      "name": "[variables('vNetName')]",
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2020-05-01",
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
+      ],
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('vNetAddressPrefixes')]"
+          ]
+        },
+        "dhcpOptions": {
+          "dnsServers": [
+            "10.0.0.4",
+            "168.63.129.16"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('vmSubnetName')]",
+            "properties": {
+              "addressPrefix": "[variables('vmSubnetAddressPrefix')]",
+              "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
+              },
+              "privateEndpointNetworkPolicies": "Disabled"
+            }
+          },
+          {
+            "name": "[variables('AppSubnetName')]",
+            "properties": {
+              "addressPrefix": "[variables('AppSubnetPrefix')]",
+              "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
+              },
+              "delegations": [
+                {
+                  "name": "Microsoft.Web.serverFarms",
+                  "properties": {
+                    "serviceName": "Microsoft.Web/serverFarms",
+                    "actions": [
+                      "Microsoft.Network/virtualNetworks/subnets/action"
+                    ]
+                  },
+                  "type": "Microsoft.Network/virtualNetworks/subnets/delegations"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    //Storage Account -------------------------------------------------------------------------------------------------
+    {
+      "name": "[variables('storageAccountName')]",
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2021-06-01",
+      "tags": {
+        "displayName": "[variables('storageAccountName')]"
+      },
+      "location": "[resourceGroup().location]",
+      "kind": "StorageV2",
+      "sku": {
+        "name": "Standard_LRS",
+        "tier": "Standard"
+      },
+      "properties": {
+        "publicNetworkAccess": "Disabled"
+      }
+    },
+    //Private Endpoint ------------------------------------------------------------------------------------------------
+    {
+      "type": "Microsoft.Network/privateDnsZones",
+      "apiVersion": "2018-09-01",
+      "name": "[variables('privateZoneName')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vNetName'))]"
+      ],
+      "location": "global",
+      "properties": {
+        "maxNumberOfRecordSets": 25000,
+        "maxNumberOfVirtualNetworkLinks": 1000,
+        "maxNumberOfVirtualNetworkLinksWithRegistration": 100,
+        "numberOfRecordSets": 2,
+        "numberOfVirtualNetworkLinks": 1,
+        "numberOfVirtualNetworkLinksWithRegistration": 0,
+        "provisioningState": "Succeeded"
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "apiVersion": "2018-09-01",
+      "name": "[concat(variables('privateZoneName'), '/n33a3tkelqvqk')]",
+      "location": "global",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', variables('privateZoneName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vNetName'))]"
+      ],
+      "properties": {
+        "registrationEnabled": false,
+        "virtualNetwork": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks', variables('vNetName'))]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints",
+      "apiVersion": "2020-11-01",
+      "name": "[variables('privateEndpointConnName')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vNetName'))]"
+      ],
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "privateLinkServiceConnections": [
+          {
+            "name": "[variables('privateEndpointConnName')]",
+            "properties": {
+              "privateLinkServiceId": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
+              "groupIds": [
+                "blob"
+              ],
+              "privateLinkServiceConnectionState": {
+                "status": "Approved",
+                "description": "Auto-Approved",
+                "actionsRequired": "None"
+              }
+            }
+          }
+        ],
+        "manualPrivateLinkServiceConnections": [],
+        "subnet": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vNetName'), variables('vmSubnetName'))]"
+        },
+        "customDnsConfigs": []
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+      "apiVersion": "2020-11-01",
+      "name": "[concat(variables('privateEndpointConnName'), '/default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateEndpoints', variables('privateEndpointConnName'))]"
+      ],
+      "properties": {
+        "privateDnsZoneConfigs": [
+          {
+            "name": "privatelink-blob-core-windows-net",
+            "properties": {
+              "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', variables('privateZoneName'))]"
+            }
+          }
+        ]
+      }
+    },
+    //App Service -----------------------------------------------------------------------------------------------------
+    {
+      "name": "[variables('AppServicePlanName')]",
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2020-06-01",
+      "location": "[resourceGroup().location]",
+      "sku": {
+        "name": "S1",
+        "tier": "Standard",
+        "size": "S1",
+        "family": "S",
+        "capacity": 1
+      },
+      "kind": "app",
+      "properties": {
+        "publicNetworkAccess": "Disabled",
+        "reserved": false,
+        "workerSize": "Default",
+        "workerSizeId": 0,
+        "workerTierName": null,
+        "numberOfWorkers": 1,
+        "currentWorkerSize": "Default",
+        "currentWorkerSizeId": 0,
+        "currentNumberOfWorkers": 1,
+        "kind": "app"
+      }
+    },
+    {
+      "name": "[variables('AppName')]",
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2019-08-01",
+      "location": "[resourceGroup().location]",
+      "kind": "app",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vNetName'))]",
+        "[resourceId('Microsoft.Web/serverFarms', variables('AppServicePlanName'))]"
+      ],
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverFarms', variables('AppServicePlanName'))]"
+      },
+      "resources": [
+        {
+          "name": "virtualNetwork",
+          "type": "config",
+          "apiVersion": "2019-08-01",
+          "dependsOn": [
+            "[concat('Microsoft.Web/sites/', variables('AppName'))]",
+            "[concat('Microsoft.Storage/storageAccounts/', variables('storageAccountName'))]"
+          ],
+          "properties": {
+            "STORAGE_ACCT_NAME": "[variables('storageAccountName')]",
+            "STORAGE_ACCT_KEY": "[listKeys(variables('storageAccountId'), '2019-04-01').keys[0].value]",
+            "subnetResourceId": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vNetName'), variables('AppSubnetName'))]",
+            "swiftSupported": true
+          }
+        }
+      ]
+    },
+    // Public IP and VM -----------------------------------------------------------------------------------------------
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2020-05-01",
+      "name": "[variables('publicIPAddressName')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "publicIPAllocationMethod": "Dynamic"
+      },
+      "sku": {
+        "name": "Basic"
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2020-05-01",
+      "name": "[variables('networkInterfaceName')]",
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIPAddressName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vNetName'))]",
+        "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
+      ],
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIPAddressName'))]"
+              },
+              "subnet": {
+                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vNetName'), variables('vmSubnetName'))]"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2019-12-01",
+      "name": "[variables('vmName')]",
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', variables('networkInterfaceName'))]"
+      ],
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[variables('vmSize')]"
+        },
+        "osProfile": {
+          "computerName": "[variables('vmName')]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "Canonical",
+            "offer": "UbuntuServer",
+            "sku": "18_04-lts-gen2",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "fromImage"
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('networkInterfaceName'))]"
+            }
+          ]
+        }
+      }
+    },
+    //Configure DNS server --------------------------------------------------------------------------------------------
+    {
+      "name": "[concat(variables('vmName'), '/config-app')]",
+      "type": "Microsoft.Compute/virtualMachines/extensions",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2019-03-01",
+      "dependsOn": [
+        "[resourceId('Microsoft.Compute/virtualMachines', variables('vmName'))]"
+      ],
+      "tags": {
+        "displayName": "config-app"
+      },
+      "properties": {
+        "publisher": "Microsoft.Azure.Extensions",
+        "type": "CustomScript",
+        "typeHandlerVersion": "2.1",
+        "autoUpgradeMinorVersion": true,
+        "settings": {},
+        "protectedSettings": {
+          "commandToExecute": "sh start-dns.sh",
+          "fileUris": [
+            "https://aleksboldedicatedapp.azurewebsites.net/Scripts/start-dns.sh"
+          ]
+        }
+      }
+    }
+  ]
+}
