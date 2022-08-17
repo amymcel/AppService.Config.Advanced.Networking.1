@@ -15,45 +15,34 @@
       "metadata": {
         "description": "The public IP address of your client computer you are working on obtained from www.whatismyip.com"
       }
-    },
-    "adminUsername": {
-      "type": "string",
-      "defaultValue": "L300admin",
-      "metadata": {
-        "description": "Specifies a username for the Virtual Machine."
-      }
-    },
-    "adminPassword": {
-      "type": "string",
-      "defaultValue": "L300password",
-      "metadata": {
-        "description": "Specifies the SSH password for the Virtual Machine."
-      }
     }
   },
   "variables": {
-    "networkInterfaceName": "[concat('NIC-N2-', parameters('EngineerAlias'))]",
-    "networkSecurityGroupName": "[concat('NSG-N2-', parameters('EngineerAlias'))]",
+    "LabLocation": "CentralUS",
+    "networkInterfaceName": "[concat('NIC-AN1-', parameters('EngineerAlias'))]",
+    "networkSecurityGroupName": "[concat('NSG-AN1-', parameters('EngineerAlias'))]",
 
-    "vNetName": "[concat('Vnet-N2-', parameters('EngineerAlias'))]",
+    "vNetName": "[concat('Vnet-AN1-', parameters('EngineerAlias'))]",
     "vNetAddressPrefixes": "10.0.0.0/16",
     "vmSubnetName": "default",
     "vmSubnetAddressPrefix": "10.0.0.0/24",
     "AppSubnetName": "app",
     "AppSubnetPrefix": "10.0.1.0/24",
 
-    "privateEndpointConnName": "[concat('PE-N2-', parameters('EngineerAlias'))]",
+    "privateEndpointConnName": "[concat('PE-AN1-', parameters('EngineerAlias'))]",
     "privateZoneName": "privatelink.blob.core.windows.net",
 
-    "storageAccountName": "[concat('storen2', toLower(parameters('EngineerAlias')))]",
+    "storageAccountName": "[concat('storean1', toLower(parameters('EngineerAlias')))]",
     "storageAccountId": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
 
-    "AppName": "[concat('APP-N2-', parameters('EngineerAlias'))]",
-    "AppServicePlanName": "[concat('Asp-N2-', parameters('EngineerAlias'))]",
+    "AppName": "[concat('APP-AN1-', parameters('EngineerAlias'))]",
+    "AppServicePlanName": "[concat('Asp-AN1-', parameters('EngineerAlias'))]",
 
-    "publicIPAddressName": "[concat('IP-N2-', parameters('EngineerAlias'))]",
-    "vmName": "[concat('VM-N2-', parameters('EngineerAlias'))]",
-    "vmSize": "Standard_B2ms"
+    "publicIPAddressName": "[concat('IP-AN1-', parameters('EngineerAlias'))]",
+    "vmName": "[concat('VM-AN1-', parameters('EngineerAlias'))]",
+    "diskName": "[concat(variables('vmName'), '-disk')]",
+    "osDiskName": "/subscriptions/4f42d231-1050-4386-b5ca-54cc38d11edf/resourceGroups/L300CertificationKeepers/providers/Microsoft.Compute/disks/L300ConfigVm-Disk",
+    "vmSize": "Standard_DS1_v2"
   },
   "resources": [
     //Network Security Group ----------------------------------------------------------------------------------------
@@ -61,25 +50,25 @@
       "name": "[variables('networkSecurityGroupName')]",
       "type": "Microsoft.Network/networkSecurityGroups",
       "apiVersion": "2020-05-01",
-      "location": "[resourceGroup().location]",
+      "location": "[variables('LabLocation')]",
       "properties": {
         "securityRules": [
           {
-            "name": "ssh_rule",
+            "name": "AllowRDPInbound",
             "properties": {
-              "description": "Locks inbound down to ssh default port 22.",
+              "description": "Allow 3389 for client only",
               "protocol": "Tcp",
               "sourcePortRange": "*",
-              "destinationPortRange": "22",
+              "destinationPortRange": "3389",
               "sourceAddressPrefix": "[parameters('clientIpAddress')]",
               "destinationAddressPrefix": "*",
               "access": "Allow",
-              "priority": 123,
+              "priority": 100,
               "direction": "Inbound"
             }
           },
           {
-            "name": "http_rule",
+            "name": "AllowHTTPInbound",
             "properties": {
               "description": "Allow HTTP",
               "protocol": "Tcp",
@@ -91,6 +80,34 @@
               "priority": 200,
               "direction": "Inbound"
             }
+          },
+          {
+            "name": "AllowHTTPSInbound",
+            "properties": {
+              "description": "Allow HTTPS",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "443",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 300,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "AllowDNSInbound",
+            "properties": {
+              "description": "Allow DNS",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "53",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 400,
+              "direction": "Inbound"
+            }
           }
         ]
       }
@@ -100,7 +117,7 @@
       "name": "[variables('vNetName')]",
       "type": "Microsoft.Network/virtualNetworks",
       "apiVersion": "2020-05-01",
-      "location": "[resourceGroup().location]",
+      "location": "[variables('LabLocation')]",
       "dependsOn": [
         "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
       ],
@@ -159,7 +176,7 @@
       "tags": {
         "displayName": "[variables('storageAccountName')]"
       },
-      "location": "[resourceGroup().location]",
+      "location": "[variables('LabLocation')]",
       "kind": "StorageV2",
       "sku": {
         "name": "Standard_LRS",
@@ -212,7 +229,7 @@
         "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
         "[resourceId('Microsoft.Network/virtualNetworks', variables('vNetName'))]"
       ],
-      "location": "[resourceGroup().location]",
+      "location": "[variables('LabLocation')]",
       "properties": {
         "privateLinkServiceConnections": [
           {
@@ -260,7 +277,7 @@
       "name": "[variables('AppServicePlanName')]",
       "type": "Microsoft.Web/serverfarms",
       "apiVersion": "2020-06-01",
-      "location": "[resourceGroup().location]",
+      "location": "[variables('LabLocation')]",
       "sku": {
         "name": "S1",
         "tier": "Standard",
@@ -286,7 +303,7 @@
       "name": "[variables('AppName')]",
       "type": "Microsoft.Web/sites",
       "apiVersion": "2019-08-01",
-      "location": "[resourceGroup().location]",
+      "location": "[variables('LabLocation')]",
       "kind": "app",
       "dependsOn": [
         "[resourceId('Microsoft.Network/virtualNetworks', variables('vNetName'))]",
@@ -318,7 +335,7 @@
       "type": "Microsoft.Network/publicIPAddresses",
       "apiVersion": "2020-05-01",
       "name": "[variables('publicIPAddressName')]",
-      "location": "[resourceGroup().location]",
+      "location": "[variables('LabLocation')]",
       "properties": {
         "publicIPAllocationMethod": "Dynamic"
       },
@@ -330,13 +347,16 @@
       "type": "Microsoft.Network/networkInterfaces",
       "apiVersion": "2020-05-01",
       "name": "[variables('networkInterfaceName')]",
-      "location": "[resourceGroup().location]",
+      "location": "[variables('LabLocation')]",
       "dependsOn": [
         "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIPAddressName'))]",
         "[resourceId('Microsoft.Network/virtualNetworks', variables('vNetName'))]",
         "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
       ],
       "properties": {
+        "networkSecurityGroup": {
+          "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
+        },
         "ipConfigurations": [
           {
             "name": "ipconfig1",
@@ -354,10 +374,27 @@
       }
     },
     {
+      "type": "Microsoft.Compute/disks",
+      "apiVersion": "2018-09-30",
+      "name": "[variables('diskName')]",
+      "location": "[variables('LabLocation')]",
+      "sku": {
+        "name": "Premium_LRS",
+        "tier": "Premium"
+      },
+      "properties": {
+        "creationData": {
+          "createOption": "Copy",
+          "sourceResourceId": "[variables('osDiskName')]"
+        },
+        "osType": "Windows"
+      }
+    },
+    {
       "type": "Microsoft.Compute/virtualMachines",
       "apiVersion": "2019-12-01",
       "name": "[variables('vmName')]",
-      "location": "[resourceGroup().location]",
+      "location": "[variables('LabLocation')]",
       "dependsOn": [
         "[resourceId('Microsoft.Network/networkInterfaces', variables('networkInterfaceName'))]"
       ],
@@ -365,54 +402,22 @@
         "hardwareProfile": {
           "vmSize": "[variables('vmSize')]"
         },
-        "osProfile": {
-          "computerName": "[variables('vmName')]",
-          "adminUsername": "[parameters('adminUsername')]",
-          "adminPassword": "[parameters('adminPassword')]"
-        },
-        "storageProfile": {
-          "imageReference": {
-            "publisher": "Canonical",
-            "offer": "UbuntuServer",
-            "sku": "18_04-lts-gen2",
-            "version": "latest"
-          },
-          "osDisk": {
-            "createOption": "fromImage"
-          }
-        },
         "networkProfile": {
           "networkInterfaces": [
             {
               "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('networkInterfaceName'))]"
             }
           ]
-        }
-      }
-    },
-    //Configure DNS server --------------------------------------------------------------------------------------------
-    {
-      "name": "[concat(variables('vmName'), '/config-app')]",
-      "type": "Microsoft.Compute/virtualMachines/extensions",
-      "location": "[resourceGroup().location]",
-      "apiVersion": "2019-03-01",
-      "dependsOn": [
-        "[resourceId('Microsoft.Compute/virtualMachines', variables('vmName'))]"
-      ],
-      "tags": {
-        "displayName": "config-app"
-      },
-      "properties": {
-        "publisher": "Microsoft.Azure.Extensions",
-        "type": "CustomScript",
-        "typeHandlerVersion": "2.1",
-        "autoUpgradeMinorVersion": true,
-        "settings": {},
-        "protectedSettings": {
-          "commandToExecute": "sh start-dns.sh",
-          "fileUris": [
-            "https://aleksboldedicatedapp.azurewebsites.net/Scripts/start-dns.sh"
-          ]
+        },
+        "storageProfile": {
+          "osDisk": {
+            "osType": "Windows",
+            "createOption": "Attach",
+            "managedDisk": {
+              "id": "[resourceId('Microsoft.Compute/disks', variables('diskName'))]"
+            }
+          },
+          "dataDisks": []
         }
       }
     }

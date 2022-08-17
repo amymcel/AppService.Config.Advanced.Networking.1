@@ -3,8 +3,6 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "EngineerAlias": { "value": "amy" },
-    "clientIpAddress": { "value": "73.239.74.210/32" },
-    "adminUsername": { "value": "L300admin" },
-    "adminPassword": { "value": "L300password" }
+    "clientIpAddress": { "value": "73.239.74.210/32" }
   }
 }
